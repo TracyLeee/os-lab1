@@ -7,13 +7,22 @@ TESTS = test_threading
 APP = main
 
 ## ---------------------------------------------------
+## ------- Additions for week 04: scheduling ---------
+TESTS += test_scheduler
+COMMON  += l1_time.o priority.o
+HEADERS += l1_time.h priority.h
+
+## ---------------------------------------------------
 ## --------- Template stuff : Do not touch -----------
 
 all: $(APP) $(TESTS)
 
-feedback: $(TESTS)
-	docker pull atrib/cs323_lab1:w3
-	-docker run --rm --name=cs323 --cap-add=SYS_PTRACE -v ${shell pwd}:/done atrib/cs323_lab1:w3 ${TESTS}
+feedback:
+	docker pull atrib/cs323_lab1:w4
+	-docker run --rm --name=cs323 --cap-add=SYS_PTRACE -v ${shell pwd}:/done atrib/cs323_lab1:w4 ${TESTS}
+
+test: ${TESTS}
+	${foreach test,${TESTS},LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${PWD} ./${test};}
 
 common.so: ${COMMON}
 	${CC} ${CPPFLAGS} ${CFLAGS} -g -shared -o common.so ${COMMON}
@@ -22,6 +31,7 @@ common.so: ${COMMON}
 
 clean:
 	@rm -f $(APP) $(TESTS) common.so
+	@rm -f *.o
 
 # Template for requirements for APPS and TESTS
 # Apart from the corresponding .c files, APPS and TESTS
