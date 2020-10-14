@@ -251,3 +251,235 @@ MLFQ is, however, responsible for updating the priority level of the `prev` thre
 If MLFQ decides to change *any* thread's priority level (increase *or* decrease), it is responsible for resetting the `l1_thread_info` attributes described above (e.g., `got_scheduled`, `total_time`, etc.).
 MLFQ should *not* change a thread's state (e.g., changing it to BLOCKED) or touch the scheduler queues themselves.
 
+## Tasks for week 5: Heap Management
+
+The heap is an area in memory dedicated for storing dynamically-allocated
+objects. Heap allocators are used to manage the heap and keep track of allocated
+and free regions. There is no single optimal strategy to manage the heap;
+different strategies are used depending on the type of application and the
+nature of its allocations (object sizes, allocation frequency, support for
+resizing, internal and external fragmentation). The most common general-purpose
+heap allocator is [glibc's
+`malloc()`](https://www.gnu.org/software/libc/manual/html_node/The-GNU-Allocator.html),
+which is based on `ptmalloc`. It is not unusual, however, to see
+performance-critical applications, like network
+protocol libraries and web browsers, using custom implementations of heap
+allocators, which best suit their use-cases.
+
+In this lab, we will implement two different methods for managing a fixed-size
+heap area, i.e., the size of the heap area itself will not change. Both methods
+will support re-use of free'd (previously allocated) regions in the heap.
+However, each method will use fundamentally different data structures to track
+heap usage. This will highlight how flexible heap allocators can be, depending
+on the required features and constraints (metadata overhead, fragmentation,
+complexity and performance, security).
+
+### Chunk Allocator
+
+The first heap allocator we will implement is a chunk allocator. Its core
+mechanism is to divide the heap area into equally-sized chunks, and keep track
+of each chunk's allocation state (reserved or free) in a bitmap or array. A
+region is then allocated by reserving contiguous free chunks, whose total size
+fits the requested region size. Additionally, metadata about that region (mainly
+its size, in bytes), is stored at the beginning of a header chunk directly
+preceding that region. The header is formatted according to the `region_hdr_t`
+data type. The following figure portrays an arbitrary state of the heap with one
+allocated region of requested size `S == 4*CHUNK_SIZE`:
+
+![Chunk allocator heap state](chunk_heap_state.png)
+
+When serving an allocation request, the allocator needs to know which sections
+of the heap are free to reserve. To that extent, the chunk allocator uses a
+bitmap to track each chunk's reservation state. To simplify the implementation
+of the allocator and make it easily extensible, the bitmap is stored as an array
+of `chunk_desc_t` objects, one for each chunk in the heap. In the simplest case,
+this object maps directly to a Boolean value that indicates whether its chunk
+is reserved (1) or free (0). For the heap state in the previous figure, the
+state of the chunk metadata array is as follows:
+
+![Chunk metadata array state](chunk_metadata_state.png)
+
+To allocate a region of `S` bytes, ![Chunk formula](chunk_size_formula.png)
+contiguous chunks must be reserved. The overhead for every allocated region is
+then `M * sizeof(chunk_desc_t) + CHUNK_SIZE + ((M - 1) * CHUNK_SIZE - S)` bytes.
+`M * sizeof(chunk_desc_t)` represents the number of bytes needed to store
+metadata for each allocated chunk. `CHUNK_SIZE` represents the number of bytes
+dedicated solely for the region header. `((M - 1) * CHUNK_SIZE - S)` represents
+the number of padding bytes in the last chunk in the region, which are due to
+internal chunk fragmentation (S could be a non-multiple of CHUNK_SIZE). To
+allocate `M` chunks, the allocation function starts the search from chunk 0,
+iterates through the chunk metadata array to find the first sequence of `M` free
+chunks, and reserves them. This is called the first-fit allocation method.
+
+The region header metadata surrounds the `size` field with a couple of magic
+values used as canaries to verify if the header had been corrupted (e.g., heap
+overflow). This is useful for the `free()` operation, allowing it to verify the
+integrity of the heap before destroying/releasing chunks. To free a region, its
+header is inspected to calculate the number of chunks it has reserved. Then, all
+chunks, including the header chunk, are released by setting their state to free
+(0) in the chunk metadata array.
+
+In this lab, we provide you with the skeleton of the chunk allocator and its
+heap setup and tear-down routines (init and deinit), in [`malloc.h/c`](../provided/malloc.h). Moreover,
+the constants, macros, data structures, and global objects are also defined and
+must be used, as is, to enable proper grading.
+
+It is thus your task to implement `chunk_malloc` and `chunk_free` in [`malloc.c`](../provided/malloc.c).
+
+One thing to notice about this allocator is that, due to the nature of its
+allocation mechanism (by searching for `M` free contiguous chunks), it
+inherently supports merging of consecutive free chunks. The worst-case
+complexity of the allocation function is O(N), and that of its free function is
+also O(N), where `N` is the total number of chunks.
+
+We also notice that for a requested chunk of just 1 byte, the overhead is `2 *
+sizeof(chunk_desc_t) + 2 * CHUNK_SIZE - S`, where `sizeof(chunk_desc_t)` is 1
+byte and `CHUNK_SIZE` is reasonably large, e.g. 1 KiB. This amounts to a
+worst-case overhead of 2049x! This is mainly due to the fact that data is stored
+in an integral multiple of `CHUNK_SIZE`, and the region header alone occupies an
+entire chunk.
+
+By dividing the heap area into fixed-size chunks and maintaining a bitmap of
+each chunk's reservation state, we introduced the following problems:
+
+1. Regions are aligned to chunk boundaries: big padding overhead.
+1. Chunk reservation states are maintained individually: big metadata overhead.
+
+### List Allocator
+
+In the second exercise, we will follow a different heap management approach,
+which will inherently solve the problems introduced by the chunk allocator.
+
+To solve the first problem, we could reduce the value of `CHUNK_SIZE` in the
+chunk allocator, for instance, to 1 Byte. However, this would require a separate
+chunk metadata struct for every byte in the heap, which introduces a lot of
+overhead. To solve the problem of chunk metadata overhead, we could aggregate
+the state of the next `M` free "chunks" into one entry. For instance, instead of
+storing `M` consecutive entries, each indicating that one chunk is free, we
+could store one entry that indicates that the next `M` consecutive chunks are
+free.
+
+Based on these observations, we could use a small "chunk" size of `N` Bytes (N
+would be much smaller than 1 KiB), such that padding is mostly eliminated, and
+for each next `M` contiguous free bytes in the heap, we store one entry
+describing them. We could set `N` to 1, thus minimizing padding overhead, but
+due to some platform limitations and performance considerations, it is best to
+choose `N` such that memory accesses are properly aligned. As such, we choose `N
+:= sizeof(max_align_t)`. **Keep note of this when deciding the minimum region
+size, and when calculating the size for an allocation request**. Hence, in a
+similar fashion to the chunk allocator, an **aligned** request size must be
+first calculated to be an integral multiple of `N`, equal to or exceeding the
+original request size. For example, if the original request size is 2 Bytes, and
+if `N == 32`, then `aligned_sz := 32`.
+
+Similarly to the chunk allocator, region metadata is inlined in the heap, just
+before the region's start boundary. However, unlike the chunk allocator, there
+will not be any external/out-of-line "chunk" metadata array. Instead, we will
+track free regions by forming them into a singly-linked list within the heap.
+
+There are two types of regions: reserved and free. Each region is directly
+preceded by a metadata header describing that region. The metadata header for a
+reserved region contains information specifying the size of the region. The
+sequence of bytes in a reserved region thus resembles the following layout:
+
+![Reserved region memory layout](list_reserved_region_layout.png)
+
+In this example layout, the size of the metadata is assumed to be 4 Bytes. The
+total size occupied in memory by the region and its header is `TOTAL_SIZE`
+Bytes. Thus, it is clear that the size/capacity specified by the region's header
+is `REG_SIZE := TOTAL_SIZE - 4` Bytes.
+
+A free region's metadata also specifies its size, in addition to specifying the
+location of the next free region in memory, in order to form the linked list.
+The sequence of bytes in a free region thus resembles the following layout:
+
+![Free region memory layout](list_free_region_layout.png)
+
+Notice that the size/capacity specified in the region's header does not include
+the space occupied by the metadata storing the `next` pointer. In other words,
+**a free region's header specifies the region's capacity as if it was a reserved
+region**. When searching for a free region suitable for allocation, that
+region's capacity must be compared to the requested allocation size. If it is a
+suitable fit, the free region will be reserved, thus discarding the `next`
+pointer, and using that space to store data. This is due to the fact that
+reserved regions are not tracked in memory, so their metadata header does not
+include a `next` pointer. Instead, data in reserved regions starts directly
+after the metadata header which only specifies the size/capacity of that region.
+
+The initial state of the heap resembles that of a free region where `TOTAL_SIZE
+== HEAP_SIZE`. On the other hand, an arbitrary state of the heap with one
+allocated region is portrayed in the following figure:
+
+![Linked list heap state](list_arbitrary_heap_state.png)
+
+To allocate a region of size `S` bytes, the list of free regions is traversed,
+starting from the head, in search for the first free region that fits the
+requested size. If the free region is big enough, part of it can be reserved for
+storing the requested size, and the remaining free part can become a new
+(smaller) free region and replace the original (bigger) free region in the list.
+An example of this can be inferred from the previous figures: consider the state
+of the heap where one region is reserved in the middle. Before that region was
+reserved, it was likely part of a bigger free region **R**, the one formed by
+combining the two regions of capacities `REG2_SIZE` and `REG3_SIZE` as in the
+following figure:
+
+![Linked list heap state](list_pre_arbitrary_heap_state.png)
+
+Upon allocating a region of `REG2_SIZE`, the allocator found **R** to be of
+sufficient size and reserved the first part of it to store `REG2_SIZE` Bytes of
+data, in addition to some region metadata. The allocator then designated the
+remainder of the region as another smaller free region, whose capacity is
+`REG3_SIZE`, and updated the linked list to reflect the change, by pointing the
+previous free region's `next` field to the newly formed free region.
+
+On the other hand, if the free region is big enough to store the requested size,
+but not enough to be followed by another free region (not enough remaining space
+to store metadata), the entire region is used up and is removed from the linked
+list. This results in a small amount of padding at the end of the region which
+introduces little overhead.
+
+To determine whether or not a free region can be split, you must first define a
+minimum region size, hereafter referred to as `min_reg_sz`. `min_reg_sz` is the
+total number of bytes required to store a **reserved region with a capacity of 1
+Byte**. `min_reg_sz` thus includes the reserved region's metadata, in addition
+to a **properly aligned** "chunk" to store 1 Byte of data. Next, if the capacity
+of the free region equals or exceeds `aligned_sz + min_reg_sz`, then the region
+must be split.
+
+In our implementation, the region header surrounds the `size` field with a
+couple of magic values used as canaries to verify if the header had been
+corrupted (e.g., heap overflow). This is useful for the `free()` operation,
+allowing it to verify the integrity of the heap before destroying/releasing
+regions and re-ordering the linked list. To free a region, we simply insert it
+at the head of the linked list of free regions (no traversal required). In the
+previous example, freeing the region with `REG2_SIZE` Bytes results in the
+following layout:
+
+![Linked list heap state](list_post_arbitrary_heap_state.png)
+
+Notice how the head of the list is re-assigned to be the newly free'd region,
+and that region's `next` now points to the previous head.
+
+In this lab, we provide you with the skeleton of the list allocator and its
+heap setup and tear-down routines (init and deinit), in [`malloc.h/c`](../provided/malloc.h). Moreover,
+the constants, macros, data structures, and global objects are also defined and
+must be used as is to enable proper grading.
+
+It is thus your task to implement `listoc8r_malloc` and `listoc8r_free` in
+[`malloc.c`](../provided/malloc.c).
+
+To reiterate the initial motiviation for the list-based allocator:
+
+1. Regions are aligned to small boundaries: little padding overhead.
+1. Region reservation states are aggregated: one metadata entry describes an
+   entire contiguous region; little metadata overhead.
+
+The worst-case complexity of the allocation function is O(N), where N is the
+number of nodes/entries in the list of free regions, and that of the free()
+function is O(1).
+
+It is important to notice that, **based on this specification**, the allocator
+does **not** support merging of free chunks. Although this is not an inherent
+limitation of the list-based approach, this feature is not required for this
+exercise, and grading will assume that consecutive free regions are not merged.
+
