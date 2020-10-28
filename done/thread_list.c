@@ -134,26 +134,6 @@ l1_thread_info* thread_list_min_total_time(l1_thread_list* list) {
 void thread_list_boost_priority(l1_thread_list* list) {
   if (thread_list_is_empty(list)) return;
 
-  // l1_thread_info *temp = list->head;
-  // l1_thread_info *temp_tail = NULL;
-  // l1_thread_info *sentinel = NULL;
-
-  // while (temp != sentinel) {
-  //   if (!temp->got_scheduled && temp->priority_level != TOP_PRIORITY) {
-  //     temp_tail = temp;
-  //     temp = temp->next;
-  //     thread_list_add(list, thread_list_remove(list, temp_tail));
-
-  //     l1_priority_increase(&list->tail->priority_level);
-  //     list->tail->got_scheduled = 0;
-  //     list->tail->total_time = 0;
-
-  //     if (!sentinel) sentinel = list->head == list->tail ? sentinel : list->tail;
-  //   } else {
-  //     temp->got_scheduled = 0;
-  //     temp = temp->next;
-  //   }
-  // }
   l1_thread_info *temp = list->head;
 
   while (temp) {
@@ -162,30 +142,8 @@ void thread_list_boost_priority(l1_thread_list* list) {
       l1_time_init(&temp->total_time);
     }
 
-    // temp->got_scheduled = 0; This does not work... But why?!
     temp = temp->next;
   }
-}
-
-l1_thread_info* thread_list_pop_highest_priority(l1_thread_list* list) {
-  if (thread_list_is_empty(list)) return NULL;
-  
-  l1_thread_info *temp = list->head;
-  l1_thread_info *scheduled_thread = list->head;
-  l1_priority highest_priority = list->head->priority_level;
-
-  while (temp) {
-    if (temp->priority_level == TOP_PRIORITY) return thread_list_remove(list, temp);
-
-    if (temp->priority_level > highest_priority) {
-      highest_priority = temp->priority_level;
-      scheduled_thread = temp;
-    }
-
-    temp = temp->next;
-  }
-  
-  return thread_list_remove(list, scheduled_thread);
 }
 
 l1_thread_info* thread_list_select_highest_priority(l1_thread_list* list) {
@@ -207,21 +165,4 @@ l1_thread_info* thread_list_select_highest_priority(l1_thread_list* list) {
   }
   
   return scheduled_thread;
-}
-
-void thread_list_decrease_priority(l1_thread_list* list, l1_thread_info* prev) {
-  if (thread_list_is_empty(list)) return;
-
-  l1_thread_info *temp = list->head;
-
-  while (temp) {
-    if (temp->slice_end - temp->slice_start >= l1_priority_slice_size(temp->priority_level) && 
-        temp != prev) {
-      l1_priority_decrease(&temp->priority_level);
-      temp->got_scheduled = 0;
-      temp->total_time = 0;
-    }
-
-    temp = temp->next;
-  }
 }

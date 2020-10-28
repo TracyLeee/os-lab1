@@ -45,7 +45,7 @@ l1_thread_info* l1_mlfq_policy(l1_thread_info* prev, l1_thread_info* next) {
     l1_priority_decrease(&prev->priority_level);
     prev->got_scheduled = 0;
     l1_time_init(&prev->total_time);
-  } else if (l1_time_is_smaller(prev->total_time, TIME_PRIORITY_THRESHOLD) == 0 && 
+  } else if (l1_time_is_smaller(TIME_PRIORITY_THRESHOLD, prev->total_time) == 1 && 
              prev->priority_level != LOWEST_PRIORITY) {
     l1_priority_decrease(&prev->priority_level);
     prev->got_scheduled = 0;
@@ -53,14 +53,5 @@ l1_thread_info* l1_mlfq_policy(l1_thread_info* prev, l1_thread_info* next) {
   }
 
   return thread_list_select_highest_priority(&scheduler->thread_arrays[RUNNABLE]);
-
-  // /* Pop the head of the non-empty queue with highest priority */
-  // l1_thread_info* scheduled_thread = thread_list_pop_highest_priority(&scheduler->thread_arrays[RUNNABLE]);
-
-  // if (scheduled_thread) {
-  //   thread_list_add(&scheduler->thread_arrays[RUNNABLE], scheduled_thread);
-  // }
-
-  // return scheduled_thread;
 }
 

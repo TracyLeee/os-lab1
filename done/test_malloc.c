@@ -15,7 +15,7 @@ void (*l1_init)(void) = NULL;
 void (*l1_deinit)(void) = NULL;
 
 START_TEST(chunk_malloc_test_1) {
-    /* This will test the chunk allocator */
+  /* This will test the chunk allocator */
   l1_init = l1_chunk_init;
   l1_deinit = l1_chunk_deinit;
   l1_malloc = l1_chunk_malloc;
@@ -24,6 +24,28 @@ START_TEST(chunk_malloc_test_1) {
   l1_init();
   void *ptr = l1_malloc(0);
   ck_assert_msg(ptr == NULL, "An allocation of size 0 should fail.");
+  l1_deinit();
+}
+END_TEST
+
+START_TEST(chunk_malloc_test_seg_fault) {
+  /* This will test the chunk allocator */
+  l1_init = l1_chunk_init;
+  l1_deinit = l1_chunk_deinit;
+  l1_malloc = l1_chunk_malloc;
+  l1_free = l1_chunk_free;
+
+  size_t K = 1024;
+
+  l1_init();
+  void *p1 = l1_malloc(1);
+  void *p2 = l1_malloc(8*K);
+  void *p3 = l1_malloc(4*K+1);
+  l1_free(p2);
+  void *p4 = l1_malloc(2*K);
+  l1_free(p3);
+  l1_free(p1);
+  l1_free(p4);
   l1_deinit();
 }
 END_TEST
@@ -67,6 +89,7 @@ int main(int argc, char **argv)
 
   /* Add more tests of your own */
   tcase_add_test(tc1, list_malloc_test_dummy);
+  tcase_add_test(tc1, chunk_malloc_test_seg_fault);
 
   SRunner *sr = srunner_create(s); 
   srunner_run_all(sr, CK_VERBOSE); 

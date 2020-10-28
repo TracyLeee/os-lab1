@@ -104,7 +104,7 @@ void *l1_chunk_malloc(size_t size)
   }
 
   /* Initialize the header */
-  l1_region_hdr_t *hdr_ptr = (l1_region_hdr_t *)(l1_chunk_arena + (start_idx * CHUNK_SIZE));
+  l1_region_hdr_t *hdr_ptr = (l1_region_hdr_t *)(l1_chunk_arena + start_idx);
 
   hdr_ptr->magic0 = l1_region_magic;
   hdr_ptr->size = size;
@@ -121,8 +121,8 @@ l1_error l1_chunk_free(void *ptr)
   /* TODO: Implement your function here */
   /* Verify ptr is on the valid boundary */
   if (((size_t)ptr - (size_t)l1_chunk_arena) % CHUNK_SIZE != 0 || 
-      ptr < (void *)(l1_chunk_arena + CHUNK_SIZE) || 
-      ptr > (void *)(l1_chunk_arena + CHUNK_ARENA_LENGTH*CHUNK_SIZE)) {
+      ptr < (void *)(l1_chunk_arena + 1) || 
+      ptr > (void *)(l1_chunk_arena + CHUNK_ARENA_LENGTH)) {
     l1_errno = ERRINVAL;
     fprintf(stderr, "l1_chunk_free(): errno %d %s\n", l1_errno, l1_strerror(l1_errno));
     return ERRINVAL;
@@ -176,8 +176,6 @@ void l1_listoc8r_init() {
   l1_listoc8r_free_head->capacity = ALLOC8R_HEAP_SIZE - meta_size;
   l1_listoc8r_free_head->magic1 = l1_listoc8r_magic;
   l1_listoc8r_free_head->next = NULL;
-
-  // printf("capacity: %lu\n", l1_listoc8r_free_head->capacity);
 }
 
 void l1_listoc8r_deinit() {
@@ -250,14 +248,6 @@ void *l1_listoc8r_malloc(size_t req_size) {
       prev->next = meta_ptr->next;
     }
   }
-
-  // printf("heap: %lu\n", (size_t)l1_listoc8r_heap);
-  // printf("return ptr - heap: %lu\n", (size_t)((char *)meta_ptr + meta_size) - (size_t)l1_listoc8r_heap);
-  // printf("head - return ptr: %lu\n", (size_t)l1_listoc8r_free_head - (size_t)((char *)meta_ptr + meta_size));
-  // printf("aligned size: %lu\n", aligned_req_size);
-  // printf("free capacity: %lu\n", cur->capacity);
-  // printf("head capacity: %lu\n", l1_listoc8r_free_head->capacity);
-  // printf("\n");
 
   return (void *)((char *)meta_ptr + meta_size);
 }
