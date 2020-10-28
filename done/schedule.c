@@ -10,6 +10,7 @@
 #include "schedule.h"
 #include "stack.h"
 #include "thread.h"
+#include "l1_time.h"
 
 l1_scheduler_info* scheduler = NULL; 
 
@@ -37,6 +38,7 @@ void initialize_scheduler(sched_policy policy) {
   scheduler->tsys->yield_target = -1;
   scheduler->tsys->thread_stack = malloc(sizeof(l1_stack));
   scheduler->select_next = policy;
+  scheduler->sched_ticks = 0;
 }
 
 void clean_up_scheduler() {
@@ -67,6 +69,7 @@ void add_to_scheduler(l1_thread_info* thread, l1_thread_state state) {
     fprintf(stderr, "Error: trying to add NULL to scheduler thread list!\n");
     exit(-1);
   }
+  thread->prev = thread->next = NULL;
   thread->state = state;
   thread_list_add(&scheduler->thread_arrays[state], thread);
 }
@@ -81,9 +84,26 @@ void schedule() {
       exit(-1);
     }
 
+    if (scheduler->tsys->state != SYSTHREAD 
+        || scheduler->tsys->prev != NULL
+        || scheduler->tsys->next != NULL) {
+      fprintf(stderr, "Error: bad handling of tsys\n");
+      exit(-1);
+    }
+    
+    /* Scheduler ticks */
+    // TODO check that it does not wrap?
+    scheduler->sched_ticks = (scheduler->sched_ticks+1) % SCHED_PERIOD;
+
     l1_thread_info* current = scheduler->current;
     l1_thread_info* next = NULL;
     l1_tid target = scheduler->current->yield_target;
+
+    /*Timestamp the end of slice*/
+    l1_time_get(&current->slice_end);
+    l1_time diff;
+    l1_time_diff(&diff, current->slice_end, current->slice_start);
+    l1_time_add(&current->total_time, diff);
 
     /* Enforce non-global state */
     scheduler->current = NULL;
@@ -97,16 +117,24 @@ void schedule() {
           current->errno = ERRINVAL;
         }
       }
+      /* fake rotate the list. */
+      thread_list_remove(&scheduler->thread_arrays[RUNNABLE], current);
+      thread_list_add(&scheduler->thread_arrays[RUNNABLE], current);
     }
 
     /* The thread is blocking */
     if (current != scheduler->tsys && 
         (current->state == BLOCKED || current->state == ZOMBIE)) {
       handle_non_runnable(current);
-      current = NULL;
     }
-    if (next == NULL) {
-      next = scheduler->select_next();
+    /* Give a chance to the scheduling algorithm to bypass yield*/
+    next = scheduler->select_next(current, next);
+
+    /* Now it is safe to free the thread if it is dead */
+    if (current->state == DEAD) {
+      l1_stack_free(current->thread_stack);
+      free(current);
+      current = NULL;
     }
    
     /* Nothing to scheduler anymore.*/
@@ -115,6 +143,12 @@ void schedule() {
     }
     scheduler->current = next;
     next->state = RUNNING;
+    next->got_scheduled = 1;
+    /*Make the thread the head of the list*/
+    thread_list_remove(&scheduler->thread_arrays[RUNNABLE], next);
+    thread_list_prepend(&scheduler->thread_arrays[RUNNABLE], next);
+    l1_time_init(&next->slice_end);
+    l1_time_get(&next->slice_start);
     switch_asm((uint64_t*)next->thread_stack->top, (uint64_t**)&scheduler->tsys->thread_stack->top);
   }
   printf("Program terminating!\n"); 
@@ -212,8 +246,8 @@ void unblock_thread(l1_thread_info* blocked, l1_thread_info* zombie) {
   thread_list_remove(&scheduler->thread_arrays[BLOCKED], blocked);
   thread_list_add(&scheduler->thread_arrays[RUNNABLE], blocked);
   thread_list_remove(&scheduler->thread_arrays[ZOMBIE], zombie);
-  l1_stack_free(zombie->thread_stack);
-  free(zombie);
+  /* Mark as dead to free it in schedule */
+  zombie->state = DEAD;
 }
 
 void yield(l1_tid tid) {

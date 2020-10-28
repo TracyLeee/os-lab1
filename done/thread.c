@@ -10,6 +10,7 @@
 #include "stack.h"
 #include "thread.h"
 #include "thread_info.h"
+#include "priority.h"
 
 /* This is a function that calls a new thread's start_routine and stores the
  * return value in the function's info struct. This function is put on top
@@ -42,6 +43,11 @@ l1_error l1_thread_create(l1_tid *thread, void *(*start_routine)(void *), void *
   new_t_info->thread_func = start_routine;
   new_t_info->thread_func_args = arg;
   new_t_info->thread_stack = l1_stack_new();
+
+  /* Initialize l1_time and scheduling-related variables */
+  new_t_info->priority_level = TOP_PRIORITY;
+  new_t_info->got_scheduled = 0;
+  new_t_info->total_time = 0;
 
   /* TODO: Setup stack for new task. At the bottom of the stack is a fake stack 
    * frame for l1_start, as described in the handout. This will allow the 

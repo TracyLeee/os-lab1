@@ -9,7 +9,10 @@
 #include "thread_list.h"
 
 /* Week 4: Interface for scheduling */
-typedef l1_thread_info* (*sched_policy) (void);
+typedef l1_thread_info* (*sched_policy) (l1_thread_info*, l1_thread_info*);
+
+/* Answers the question "what does periodically mean?" in terms of sched_ticks*/
+#define SCHED_PERIOD 10
 
 typedef struct {
   l1_thread_info* current;                          /** Current thread */
@@ -17,6 +20,7 @@ typedef struct {
   l1_thread_info* tsys;                             /** System thread */
   sched_policy select_next;                         /** Scheduler policy */
   l1_thread_list thread_arrays[NUM_THREAD_STATES];  /** Lists for the threads in different states. */
+  uint64_t sched_ticks;                             /** Scheduler ticks */
 } l1_scheduler_info;
 
 /**
@@ -73,7 +77,8 @@ void handle_non_runnable(l1_thread_info* current);
  * This is a helper function that assumes blocked is in the BLOCKED list
  * and zombie is in ZOMBIE list or null. The function moves blocked
  * to the RUNNABLE list. If zombie is not null, it */
- // free its stack and l1_thread_info.
+ // puts zombie into dead mode.
+ // The free of the zombie happens in schedule.
  /**
  * @warning The function changes errno value for a l1_thread_info and moves 
  * structures from one list to another.

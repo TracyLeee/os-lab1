@@ -72,7 +72,7 @@ int main(int argc, char **argv)
     l1_init();
 
   /* Call to setup the scheduler */
-  initialize_scheduler(l1_round_robin_policy);
+  initialize_scheduler(l1_mlfq_policy);
   /* Creating a thread. A unique identifier for this thread 
    * will be stored in `tid`. The thread will run the function
    * `foo` with a NULL argument. */

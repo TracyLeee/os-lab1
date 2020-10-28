@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include "error.h"
 #include "stack.h"
+#include "l1_time.h"
+#include "priority.h"
 
 typedef  void*(*thread_func_t)(void*) ;
 
@@ -45,4 +47,10 @@ typedef struct l1_thread_info {
   void* retval;                   /** Value returned by the thread */
   void** join_recv;               /** Pointer to put joined thread's return val */
 
+  /* Scheduling information */
+  l1_priority priority_level;     /** Priority level for the scheduler */
+  int got_scheduled;              /*Did it get scheduled at this priority */
+  l1_time total_time;             /** Total execution time so far */
+  l1_time slice_start;       /** Start time it was last scheduled */
+  l1_time slice_end;         /**End time it was last descheduled */
 } l1_thread_info;

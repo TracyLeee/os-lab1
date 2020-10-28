@@ -80,3 +80,18 @@ l1_thread_info* thread_list_pop(l1_thread_list* list);
  * @returns       True/false
  */
 bool thread_list_is_empty(l1_thread_list* list);
+
+/* Find the element in list with minimum total time */
+l1_thread_info* thread_list_min_total_time(l1_thread_list* list);
+
+/* Boost threads' priority periodically */
+void thread_list_boost_priority(l1_thread_list* list);
+
+/* Pop the first element in the list with highest priority */
+l1_thread_info* thread_list_pop_highest_priority(l1_thread_list* list);
+
+/* Select the first element in the list with highest priority */
+l1_thread_info* thread_list_select_highest_priority(l1_thread_list* list);
+
+/* Decrease threads' priority (except the "prev" thread)*/
+void thread_list_decrease_priority(l1_thread_list* list, l1_thread_info* prev);
